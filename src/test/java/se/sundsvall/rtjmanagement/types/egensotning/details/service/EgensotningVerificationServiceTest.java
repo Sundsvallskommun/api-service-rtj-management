@@ -2,12 +2,13 @@ package se.sundsvall.rtjmanagement.types.egensotning.details.service;
 
 import generated.se.sundsvall.citizen.CitizenAddress;
 import generated.se.sundsvall.citizen.CitizenExtended;
+import java.time.LocalDate;
 import java.util.List;
 import java.util.Optional;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
-import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import se.sundsvall.dept44.exception.ClientProblem;
@@ -56,8 +57,14 @@ class EgensotningVerificationServiceTest {
 	@Mock
 	private CitizenClient citizenClientMock;
 
-	@InjectMocks
 	private EgensotningVerificationService service;
+
+	@BeforeEach
+	void setUp() {
+		// Reapplication/duplicate-permit check ON — the demo opt-out flag is exercised separately below.
+		service = new EgensotningVerificationService(errandRepositoryMock, detailsRepositoryMock, attachmentRepositoryMock,
+			sotningsobjektRepositoryMock, citizenClientMock, true);
+	}
 
 	private static ErrandEntity egensotningErrand() {
 		return ErrandEntity.create().withId(ERRAND_ID).withTypeSlug("EGENSOTNING").withStatus(STATUS_REGISTERED);
@@ -98,7 +105,7 @@ class EgensotningVerificationServiceTest {
 
 	private void stubRegistered() {
 		when(citizenClientMock.getGuid(MUNICIPALITY_ID, PNR)).thenReturn(GUID);
-		when(citizenClientMock.getCitizen(MUNICIPALITY_ID, GUID)).thenReturn(registeredCitizen());
+		when(citizenClientMock.getCitizen(GUID)).thenReturn(registeredCitizen());
 	}
 
 	private void stubNoPriorApplications() {
@@ -179,7 +186,7 @@ class EgensotningVerificationServiceTest {
 		stubBilagorPresent();
 		stubObjektPresent();
 		when(citizenClientMock.getGuid(MUNICIPALITY_ID, PNR)).thenReturn(GUID);
-		when(citizenClientMock.getCitizen(MUNICIPALITY_ID, GUID)).thenReturn(citizenAtOtherProperty());
+		when(citizenClientMock.getCitizen(GUID)).thenReturn(citizenAtOtherProperty());
 		stubNoPriorApplications();
 
 		final var result = service.verify(MUNICIPALITY_ID, NAMESPACE, ERRAND_ID);
@@ -187,6 +194,22 @@ class EgensotningVerificationServiceTest {
 		assertThat(result.getOutcome()).isEqualTo("NEEDS_MANUAL_REVIEW");
 		assertThat(result.getRegisteredAtProperty()).isFalse();
 		assertThat(result.getManualReviewReason()).isEqualTo("NOT_REGISTERED");
+	}
+
+	@Test
+	void notRegisteredButClaimsOwnershipGivesOwnerNotRegisteredReason() {
+		// Sökanden är inte folkbokförd på fastigheten men har uppgett sig äga den (t.ex. sommarstuga) →
+		// manuell granskning med den mer specifika anledningen, så handläggaren ser ägar-underlaget.
+		when(errandRepositoryMock.findByIdAndNamespaceAndMunicipalityId(ERRAND_ID, NAMESPACE, MUNICIPALITY_ID)).thenReturn(Optional.of(egensotningErrand()));
+		when(detailsRepositoryMock.findByErrandId(ERRAND_ID)).thenReturn(Optional.of(details().withOwnsProperty(true)));
+		when(citizenClientMock.getGuid(MUNICIPALITY_ID, PNR)).thenReturn(GUID);
+		when(citizenClientMock.getCitizen(GUID)).thenReturn(citizenAtOtherProperty());
+
+		final var result = service.verify(MUNICIPALITY_ID, NAMESPACE, ERRAND_ID);
+
+		assertThat(result.getOutcome()).isEqualTo("NEEDS_MANUAL_REVIEW");
+		assertThat(result.getRegisteredAtProperty()).isFalse();
+		assertThat(result.getManualReviewReason()).isEqualTo("OWNER_NOT_REGISTERED");
 	}
 
 	@Test
@@ -268,11 +291,103 @@ class EgensotningVerificationServiceTest {
 	}
 
 	@Test
+	void activePermitOnSameFastighetNeedsManualReview() {
+		// Sökanden har redan ett giltigt tillstånd på samma fastighet → dubblett → manuell granskning.
+		stubErrandAndDetails();
+		stubBilagorPresent();
+		stubObjektPresent();
+		stubRegistered();
+		when(detailsRepositoryMock.findByPersonnummerAndErrandIdNot(PNR, ERRAND_ID))
+			.thenReturn(List.of(EgensotningDetailsEntity.create().withErrandId("prior-1").withPersonnummer(PNR)
+				.withFastighetsbeteckning(FASTIGHET).withValidUntil(LocalDate.now().plusYears(3))));
+		when(errandRepositoryMock.findById("prior-1")).thenReturn(Optional.of(ErrandEntity.create().withId("prior-1").withStatus(STATUS_DECIDED)));
+
+		final var result = service.verify(MUNICIPALITY_ID, NAMESPACE, ERRAND_ID);
+
+		assertThat(result.getOutcome()).isEqualTo("NEEDS_MANUAL_REVIEW");
+		assertThat(result.getReapplicationOk()).isFalse();
+		assertThat(result.getManualReviewReason()).isEqualTo("ACTIVE_PERMIT_EXISTS");
+	}
+
+	@Test
+	void reapplicationCheckDisabledSkipsDuplicatePermitGuard() {
+		// Med egensotning.reapplication-check.enabled=false hoppas hela återansöknings-/dubblettkontrollen
+		// över (demo-läge): även ett gällande beslut på samma fastighet auto-godkänns. Den tidigare-ärende-
+		// slagningen görs aldrig — därför stubbas inte findByPersonnummerAndErrandIdNot.
+		final var disabledService = new EgensotningVerificationService(errandRepositoryMock, detailsRepositoryMock,
+			attachmentRepositoryMock, sotningsobjektRepositoryMock, citizenClientMock, false);
+		stubErrandAndDetails();
+		stubBilagorPresent();
+		stubObjektPresent();
+		stubRegistered();
+
+		final var result = disabledService.verify(MUNICIPALITY_ID, NAMESPACE, ERRAND_ID);
+
+		assertThat(result.getOutcome()).isEqualTo("AUTO_APPROVE");
+		assertThat(result.getReapplicationOk()).isTrue();
+		assertThat(result.getManualReviewReason()).isNull();
+	}
+
+	@Test
+	void tillsvidarePermitOnSameFastighetNeedsManualReview() {
+		// Tillstånd utan utgångsdatum (gäller tills vidare, valid_until = null) → fortfarande aktivt → dubblett.
+		stubErrandAndDetails();
+		stubBilagorPresent();
+		stubObjektPresent();
+		stubRegistered();
+		when(detailsRepositoryMock.findByPersonnummerAndErrandIdNot(PNR, ERRAND_ID))
+			.thenReturn(List.of(EgensotningDetailsEntity.create().withErrandId("prior-1").withPersonnummer(PNR)
+				.withFastighetsbeteckning(FASTIGHET)));
+		when(errandRepositoryMock.findById("prior-1")).thenReturn(Optional.of(ErrandEntity.create().withId("prior-1").withStatus(STATUS_DECIDED)));
+
+		final var result = service.verify(MUNICIPALITY_ID, NAMESPACE, ERRAND_ID);
+
+		assertThat(result.getOutcome()).isEqualTo("NEEDS_MANUAL_REVIEW");
+		assertThat(result.getManualReviewReason()).isEqualTo("ACTIVE_PERMIT_EXISTS");
+	}
+
+	@Test
+	void expiredPermitOnSameFastighetAllowsRenewal() {
+		// Utgånget tillstånd på samma fastighet → förnyelse → auto-godkänns.
+		stubErrandAndDetails();
+		stubBilagorPresent();
+		stubObjektPresent();
+		stubRegistered();
+		when(detailsRepositoryMock.findByPersonnummerAndErrandIdNot(PNR, ERRAND_ID))
+			.thenReturn(List.of(EgensotningDetailsEntity.create().withErrandId("prior-1").withPersonnummer(PNR)
+				.withFastighetsbeteckning(FASTIGHET).withValidUntil(LocalDate.now().minusDays(1))));
+		when(errandRepositoryMock.findById("prior-1")).thenReturn(Optional.of(ErrandEntity.create().withId("prior-1").withStatus(STATUS_DECIDED)));
+
+		final var result = service.verify(MUNICIPALITY_ID, NAMESPACE, ERRAND_ID);
+
+		assertThat(result.getOutcome()).isEqualTo("AUTO_APPROVE");
+		assertThat(result.getReapplicationOk()).isTrue();
+	}
+
+	@Test
+	void activePermitOnDifferentFastighetAutoApproves() {
+		// Giltigt tillstånd på en ANNAN fastighet → inte en dubblett → auto-godkänns.
+		stubErrandAndDetails();
+		stubBilagorPresent();
+		stubObjektPresent();
+		stubRegistered();
+		when(detailsRepositoryMock.findByPersonnummerAndErrandIdNot(PNR, ERRAND_ID))
+			.thenReturn(List.of(EgensotningDetailsEntity.create().withErrandId("prior-1").withPersonnummer(PNR)
+				.withFastighetsbeteckning("Sundsvall Annan 9:9").withValidUntil(LocalDate.now().plusYears(3))));
+		when(errandRepositoryMock.findById("prior-1")).thenReturn(Optional.of(ErrandEntity.create().withId("prior-1").withStatus(STATUS_DECIDED)));
+
+		final var result = service.verify(MUNICIPALITY_ID, NAMESPACE, ERRAND_ID);
+
+		assertThat(result.getOutcome()).isEqualTo("AUTO_APPROVE");
+		assertThat(result.getReapplicationOk()).isTrue();
+	}
+
+	@Test
 	void notRegisteredTakesPrecedenceOverMissingBilaga() {
 		stubErrandAndDetails();
 		stubObjektPresent();
 		when(citizenClientMock.getGuid(MUNICIPALITY_ID, PNR)).thenReturn(GUID);
-		when(citizenClientMock.getCitizen(MUNICIPALITY_ID, GUID)).thenReturn(citizenAtOtherProperty());
+		when(citizenClientMock.getCitizen(GUID)).thenReturn(citizenAtOtherProperty());
 		stubNoPriorApplications();
 
 		final var result = service.verify(MUNICIPALITY_ID, NAMESPACE, ERRAND_ID);

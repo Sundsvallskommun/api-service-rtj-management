@@ -49,6 +49,8 @@ class EgensotningDetailsEntityTest {
 		final var validFrom = LocalDate.now();
 		final var validUntil = LocalDate.now().plusYears(6);
 		final var reminderSentAt = now();
+		final var documentValidatedAt = now();
+		final var revokedAt = now();
 		final var created = now();
 		final var modified = now();
 
@@ -58,6 +60,10 @@ class EgensotningDetailsEntityTest {
 			.withPersonnummer("199001011234")
 			.withFastighetsbeteckning("Fast 1:1")
 			.withPropertyAddress("Gatan 1")
+			.withOwnsProperty(true)
+			.withOwnershipMotivation("Arrenderar")
+			.withAppliesForOtherProperty(false)
+			.withMotivering("Egen motivering")
 			.withBilagaPresent(true)
 			.withRegisteredAtProperty(false)
 			.withReapplicationOk(true)
@@ -67,6 +73,11 @@ class EgensotningDetailsEntityTest {
 			.withValidFrom(validFrom)
 			.withValidUntil(validUntil)
 			.withReminderSentAt(reminderSentAt)
+			.withDocumentsValid(true)
+			.withDocumentValidationDetail("Dokumenten är giltiga")
+			.withDocumentValidatedAt(documentValidatedAt)
+			.withRevokedAt(revokedAt)
+			.withRevocationReason("ADDRESS_CHANGED")
 			.withCreated(created)
 			.withModified(modified);
 
@@ -76,6 +87,10 @@ class EgensotningDetailsEntityTest {
 		org.assertj.core.api.Assertions.assertThat(entity.getPersonnummer()).isEqualTo("199001011234");
 		org.assertj.core.api.Assertions.assertThat(entity.getFastighetsbeteckning()).isEqualTo("Fast 1:1");
 		org.assertj.core.api.Assertions.assertThat(entity.getPropertyAddress()).isEqualTo("Gatan 1");
+		org.assertj.core.api.Assertions.assertThat(entity.getOwnsProperty()).isTrue();
+		org.assertj.core.api.Assertions.assertThat(entity.getOwnershipMotivation()).isEqualTo("Arrenderar");
+		org.assertj.core.api.Assertions.assertThat(entity.getAppliesForOtherProperty()).isFalse();
+		org.assertj.core.api.Assertions.assertThat(entity.getMotivering()).isEqualTo("Egen motivering");
 		org.assertj.core.api.Assertions.assertThat(entity.getBilagaPresent()).isTrue();
 		org.assertj.core.api.Assertions.assertThat(entity.getRegisteredAtProperty()).isFalse();
 		org.assertj.core.api.Assertions.assertThat(entity.getReapplicationOk()).isTrue();
@@ -85,6 +100,11 @@ class EgensotningDetailsEntityTest {
 		org.assertj.core.api.Assertions.assertThat(entity.getValidFrom()).isEqualTo(validFrom);
 		org.assertj.core.api.Assertions.assertThat(entity.getValidUntil()).isEqualTo(validUntil);
 		org.assertj.core.api.Assertions.assertThat(entity.getReminderSentAt()).isEqualTo(reminderSentAt);
+		org.assertj.core.api.Assertions.assertThat(entity.getDocumentsValid()).isTrue();
+		org.assertj.core.api.Assertions.assertThat(entity.getDocumentValidationDetail()).isEqualTo("Dokumenten är giltiga");
+		org.assertj.core.api.Assertions.assertThat(entity.getDocumentValidatedAt()).isEqualTo(documentValidatedAt);
+		org.assertj.core.api.Assertions.assertThat(entity.getRevokedAt()).isEqualTo(revokedAt);
+		org.assertj.core.api.Assertions.assertThat(entity.getRevocationReason()).isEqualTo("ADDRESS_CHANGED");
 		org.assertj.core.api.Assertions.assertThat(entity.getCreated()).isEqualTo(created);
 		org.assertj.core.api.Assertions.assertThat(entity.getModified()).isEqualTo(modified);
 	}

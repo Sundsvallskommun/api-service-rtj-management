@@ -18,7 +18,6 @@ import se.sundsvall.rtjmanagement.types.egensotning.details.service.EgensotningD
 import se.sundsvall.rtjmanagement.types.egensotning.sotningsobjekt.service.SotningsobjektService;
 
 import static java.util.Optional.ofNullable;
-import static org.springframework.util.StringUtils.hasText;
 
 /**
  * One-call submission of a complete egensotning application. Creates the errand and all its child
@@ -40,19 +39,24 @@ public class EgensotningApplicationService {
 	private final SotningsobjektService sotningsobjektService;
 	private final StakeholderService stakeholderService;
 	private final AttachmentService attachmentService;
+	private final EgensotningPropertyValidator propertyValidator;
 
 	EgensotningApplicationService(final ErrandService errandService, final EgensotningDetailsService detailsService,
 		final SotningsobjektService sotningsobjektService, final StakeholderService stakeholderService,
-		final AttachmentService attachmentService) {
+		final AttachmentService attachmentService, final EgensotningPropertyValidator propertyValidator) {
 		this.errandService = errandService;
 		this.detailsService = detailsService;
 		this.sotningsobjektService = sotningsobjektService;
 		this.stakeholderService = stakeholderService;
 		this.attachmentService = attachmentService;
+		this.propertyValidator = propertyValidator;
 	}
 
 	public String submit(final String municipalityId, final String namespace, final EgensotningApplication application,
 		final MultipartFile brandskyddskontroll, final MultipartFile utbildningsintyg) {
+		// 0. Avvisa ansökningar för fastigheter utanför förbundets område (I4) innan något skapas.
+		propertyValidator.assertValid(application.getFastighetsbeteckning());
+
 		// 1. Errand (utan processDefinitionName → processen startar INTE här)
 		final var errandId = errandService.createErrand(municipalityId, namespace, toErrand(application));
 
@@ -73,7 +77,7 @@ public class EgensotningApplicationService {
 	private static Errand toErrand(final EgensotningApplication application) {
 		return Errand.create()
 			.withTypeSlug(EgensotningModuleConfig.TYPE_SLUG)
-			.withTitle(hasText(application.getTitle()) ? application.getTitle() : DEFAULT_TITLE)
+			.withTitle(ofNullable(application.getTitle()).filter(title -> !title.isBlank()).orElse(DEFAULT_TITLE))
 			.withStatus(EgensotningModuleConfig.STATUS_REGISTERED)
 			.withDescription(application.getDescription())
 			.withPriority(application.getPriority())
@@ -86,7 +90,10 @@ public class EgensotningApplicationService {
 		return EgensotningDetails.create()
 			.withPersonnummer(application.getPersonnummer())
 			.withFastighetsbeteckning(application.getFastighetsbeteckning())
-			.withPropertyAddress(application.getPropertyAddress());
+			.withPropertyAddress(application.getPropertyAddress())
+			.withOwnsProperty(application.getOwnsProperty())
+			.withOwnershipMotivation(application.getOwnershipMotivation())
+			.withAppliesForOtherProperty(application.getAppliesForOtherProperty());
 	}
 
 	private static Stakeholder toApplicantStakeholder(final EgensotningApplication application) {
@@ -106,6 +113,13 @@ public class EgensotningApplicationService {
 			.withZipCode(application.getApplicantZipCode())
 			.withCity(application.getApplicantCity())
 			.withCountry(application.getApplicantCountry())
-			.withContactChannels(contactChannels.isEmpty() ? null : contactChannels);
+			.withContactChannels(nullIfEmpty(contactChannels));
+	}
+
+	private static List<ContactChannel> nullIfEmpty(final List<ContactChannel> channels) {
+		if (channels.isEmpty()) {
+			return null;
+		}
+		return channels;
 	}
 }

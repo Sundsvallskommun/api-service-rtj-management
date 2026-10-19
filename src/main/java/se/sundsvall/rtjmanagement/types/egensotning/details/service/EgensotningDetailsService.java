@@ -1,17 +1,27 @@
 package se.sundsvall.rtjmanagement.types.egensotning.details.service;
 
+import java.util.ArrayList;
+import java.util.List;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import se.sundsvall.dept44.problem.Problem;
+import se.sundsvall.rtjmanagement.attachments.integration.db.AttachmentRepository;
 import se.sundsvall.rtjmanagement.core.integration.db.ErrandRepository;
 import se.sundsvall.rtjmanagement.core.integration.db.model.ErrandEntity;
 import se.sundsvall.rtjmanagement.types.egensotning.configuration.EgensotningModuleConfig;
+import se.sundsvall.rtjmanagement.types.egensotning.configuration.EgensotningMutationGuard;
 import se.sundsvall.rtjmanagement.types.egensotning.details.api.model.EgensotningDetails;
 import se.sundsvall.rtjmanagement.types.egensotning.details.integration.db.EgensotningDetailsRepository;
 import se.sundsvall.rtjmanagement.types.egensotning.details.service.mapper.EgensotningDetailsMapper;
+import se.sundsvall.rtjmanagement.types.egensotning.sotningsobjekt.integration.db.SotningsobjektRepository;
 
 import static org.springframework.http.HttpStatus.BAD_REQUEST;
 import static org.springframework.http.HttpStatus.NOT_FOUND;
+import static se.sundsvall.rtjmanagement.types.egensotning.configuration.EgensotningModuleConfig.CATEGORY_BRANDSKYDDSKONTROLL;
+import static se.sundsvall.rtjmanagement.types.egensotning.configuration.EgensotningModuleConfig.CATEGORY_UTBILDNINGSINTYG;
+import static se.sundsvall.rtjmanagement.types.egensotning.configuration.EgensotningModuleConfig.SUPPLEMENT_MISSING_BRANDSKYDDSKONTROLL;
+import static se.sundsvall.rtjmanagement.types.egensotning.configuration.EgensotningModuleConfig.SUPPLEMENT_MISSING_SOTNINGSOBJEKT;
+import static se.sundsvall.rtjmanagement.types.egensotning.configuration.EgensotningModuleConfig.SUPPLEMENT_MISSING_UTBILDNINGSINTYG;
 import static se.sundsvall.rtjmanagement.types.egensotning.details.service.mapper.EgensotningDetailsMapper.applyPatch;
 import static se.sundsvall.rtjmanagement.types.egensotning.details.service.mapper.EgensotningDetailsMapper.toEntity;
 
@@ -30,10 +40,15 @@ public class EgensotningDetailsService {
 
 	private final ErrandRepository errandRepository;
 	private final EgensotningDetailsRepository repository;
+	private final AttachmentRepository attachmentRepository;
+	private final SotningsobjektRepository sotningsobjektRepository;
 
-	EgensotningDetailsService(final ErrandRepository errandRepository, final EgensotningDetailsRepository repository) {
+	EgensotningDetailsService(final ErrandRepository errandRepository, final EgensotningDetailsRepository repository,
+		final AttachmentRepository attachmentRepository, final SotningsobjektRepository sotningsobjektRepository) {
 		this.errandRepository = errandRepository;
 		this.repository = repository;
+		this.attachmentRepository = attachmentRepository;
+		this.sotningsobjektRepository = sotningsobjektRepository;
 	}
 
 	/**
@@ -42,6 +57,7 @@ public class EgensotningDetailsService {
 	 */
 	public void upsert(final String municipalityId, final String namespace, final String errandId, final EgensotningDetails details) {
 		final var errand = findErrandWithType(municipalityId, namespace, errandId);
+		EgensotningMutationGuard.assertMutable(errand);
 		final var existing = repository.findByErrandId(errand.getId());
 		if (existing.isPresent()) {
 			applyPatch(existing.get(), details);
@@ -56,11 +72,31 @@ public class EgensotningDetailsService {
 		findErrandWithType(municipalityId, namespace, errandId);
 		return repository.findByErrandId(errandId)
 			.map(EgensotningDetailsMapper::toDetails)
+			.map(details -> details.withSupplementNeeds(computeSupplementNeeds(errandId)))
 			.orElseThrow(() -> Problem.valueOf(NOT_FOUND, DETAILS_NOT_FOUND_MESSAGE.formatted(errandId, namespace, municipalityId)));
 	}
 
+	/**
+	 * Beräknar vad som ännu saknas för en komplett ansökan, vid läsning (alltid färskt — krymper när
+	 * sökanden laddar upp/skapar det som saknas). Ger frontend en exakt checklista utan att korsreferera
+	 * flera endpoints. Tom lista = inget saknas. Beräknas, persisteras inte (ingen migrering behövs).
+	 */
+	private List<String> computeSupplementNeeds(final String errandId) {
+		final var needs = new ArrayList<String>();
+		if (!attachmentRepository.existsByErrandIdAndCategory(errandId, CATEGORY_BRANDSKYDDSKONTROLL)) {
+			needs.add(SUPPLEMENT_MISSING_BRANDSKYDDSKONTROLL);
+		}
+		if (!attachmentRepository.existsByErrandIdAndCategory(errandId, CATEGORY_UTBILDNINGSINTYG)) {
+			needs.add(SUPPLEMENT_MISSING_UTBILDNINGSINTYG);
+		}
+		if (!sotningsobjektRepository.existsByErrandId(errandId)) {
+			needs.add(SUPPLEMENT_MISSING_SOTNINGSOBJEKT);
+		}
+		return needs;
+	}
+
 	public void delete(final String municipalityId, final String namespace, final String errandId) {
-		findErrandWithType(municipalityId, namespace, errandId);
+		EgensotningMutationGuard.assertMutable(findErrandWithType(municipalityId, namespace, errandId));
 		repository.deleteByErrandId(errandId);
 	}
 

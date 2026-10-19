@@ -14,6 +14,23 @@ integration:
     mottagningsbevis-template-identifier: egensotning-mottagningsbevis
   messaging:
     url: http://messaging.url
+  eneo:
+    url: http://eneo.url
+    api-key: the-api-key
+    space-id: 00000000-0000-0000-0000-000000000000
+    assistants:
+      brandskyddskontroll: 00000000-0000-0000-0000-000000000001
+      egensotning: 00000000-0000-0000-0000-000000000002
+    oauth2:
+      token-url: http://token.url
+      client-id: the-client-id
+      client-secret: the-client-secret
+  lantmateriet:
+    oauth2-token-url: http://token.url
+    oauth2-client-id: the-client-id
+    oauth2-client-secret: the-client-secret
+    registerbeteckning:
+      url: http://lantmateriet.url
 scheduler:
   notification-cleanup:
     cron: '-'
@@ -26,6 +43,11 @@ scheduler:
     shedlock-lock-at-most-for: PT5M
     maximum-execution-time: PT10M
     lead-time-days: 90
+  egensotning-address-monitor:
+    cron: '-'
+    name: egensotning-address-monitor
+    shedlock-lock-at-most-for: PT10M
+    maximum-execution-time: PT30M
 spring:
   cache:
     type: none

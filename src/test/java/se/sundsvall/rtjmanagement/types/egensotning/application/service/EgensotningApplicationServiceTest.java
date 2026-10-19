@@ -1,14 +1,16 @@
 package se.sundsvall.rtjmanagement.types.egensotning.application.service;
 
 import java.util.List;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
-import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.web.multipart.MultipartFile;
+import se.sundsvall.dept44.problem.Problem;
+import se.sundsvall.dept44.problem.ThrowableProblem;
 import se.sundsvall.rtjmanagement.attachments.service.AttachmentService;
 import se.sundsvall.rtjmanagement.core.api.model.Errand;
 import se.sundsvall.rtjmanagement.core.service.ErrandService;
@@ -21,12 +23,16 @@ import se.sundsvall.rtjmanagement.types.egensotning.sotningsobjekt.api.model.Sot
 import se.sundsvall.rtjmanagement.types.egensotning.sotningsobjekt.service.SotningsobjektService;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
+import static org.springframework.http.HttpStatus.BAD_REQUEST;
 
 @ExtendWith(MockitoExtension.class)
 class EgensotningApplicationServiceTest {
@@ -46,9 +52,16 @@ class EgensotningApplicationServiceTest {
 	private StakeholderService stakeholderServiceMock;
 	@Mock
 	private AttachmentService attachmentServiceMock;
+	@Mock
+	private EgensotningPropertyValidator propertyValidatorMock;
 
-	@InjectMocks
 	private EgensotningApplicationService service;
+
+	@BeforeEach
+	void setUp() {
+		service = new EgensotningApplicationService(errandServiceMock, detailsServiceMock, sotningsobjektServiceMock,
+			stakeholderServiceMock, attachmentServiceMock, propertyValidatorMock);
+	}
 
 	private static MultipartFile protokoll() {
 		return new MockMultipartFile("brandskyddskontroll", "protokoll.pdf", "application/pdf", "data".getBytes());
@@ -63,6 +76,9 @@ class EgensotningApplicationServiceTest {
 		application.setApplicantEmail("anna@example.se");
 		application.setPersonnummer("198507231234");
 		application.setFastighetsbeteckning("Sundsvall Stenstaden 1:23");
+		application.setOwnsProperty(true);
+		application.setOwnershipMotivation("Arrenderar fastigheten");
+		application.setAppliesForOtherProperty(true);
 		application.setApplicantFirstName("Anna");
 		application.setApplicantLastName("Karlsson");
 		application.setApplicantPhone("+46701234567");
@@ -79,7 +95,12 @@ class EgensotningApplicationServiceTest {
 		final var result = service.submit(MUNICIPALITY_ID, NAMESPACE, sampleApplication(), protokoll(), intyg());
 
 		assertThat(result).isEqualTo(ERRAND_ID);
-		verify(detailsServiceMock).upsert(eq(MUNICIPALITY_ID), eq(NAMESPACE), eq(ERRAND_ID), any(EgensotningDetails.class));
+		final var detailsCaptor = ArgumentCaptor.forClass(EgensotningDetails.class);
+		verify(detailsServiceMock).upsert(eq(MUNICIPALITY_ID), eq(NAMESPACE), eq(ERRAND_ID), detailsCaptor.capture());
+		assertThat(detailsCaptor.getValue().getFastighetsbeteckning()).isEqualTo("Sundsvall Stenstaden 1:23");
+		assertThat(detailsCaptor.getValue().getOwnsProperty()).isTrue();
+		assertThat(detailsCaptor.getValue().getOwnershipMotivation()).isEqualTo("Arrenderar fastigheten");
+		assertThat(detailsCaptor.getValue().getAppliesForOtherProperty()).isTrue();
 		verify(sotningsobjektServiceMock, times(2)).create(eq(MUNICIPALITY_ID), eq(NAMESPACE), eq(ERRAND_ID), any(Sotningsobjekt.class));
 		// Each bilaga stored with its specific category
 		verify(attachmentServiceMock).createAttachment(eq(MUNICIPALITY_ID), eq(NAMESPACE), eq(ERRAND_ID), any(MultipartFile.class), eq("BRANDSKYDDSKONTROLL"));
@@ -105,12 +126,58 @@ class EgensotningApplicationServiceTest {
 		final var application = EgensotningApplication.create();
 		application.setApplicantEmail("a@b.c");
 		application.setPersonnummer("198501010000");
-		application.setFastighetsbeteckning("Fast 1:1");
+		application.setFastighetsbeteckning("Sundsvall Fast 1:1");
 		when(errandServiceMock.createErrand(any(), any(), any())).thenReturn(ERRAND_ID);
 
 		final var result = service.submit(MUNICIPALITY_ID, NAMESPACE, application, protokoll(), intyg());
 
 		assertThat(result).isEqualTo(ERRAND_ID);
 		verify(errandServiceMock).startProcess(MUNICIPALITY_ID, NAMESPACE, ERRAND_ID, PROCESS_NAME, null);
+	}
+
+	@Test
+	void submitWithBlankTitleAndContactsUsesDefaultTitleAndNullChannels() {
+		// Blanka valfria fält: titel → standardtitel, blank e-post/telefon → inga kontaktkanaler (null).
+		final var application = EgensotningApplication.create();
+		application.setTitle("   ");
+		application.setApplicantEmail("   ");
+		application.setApplicantPhone("   ");
+		application.setPersonnummer("198501010000");
+		application.setFastighetsbeteckning("Sundsvall Fast 1:1");
+		when(errandServiceMock.createErrand(any(), any(), any())).thenReturn(ERRAND_ID);
+
+		service.submit(MUNICIPALITY_ID, NAMESPACE, application, protokoll(), intyg());
+
+		final var errandCaptor = ArgumentCaptor.forClass(Errand.class);
+		verify(errandServiceMock).createErrand(eq(MUNICIPALITY_ID), eq(NAMESPACE), errandCaptor.capture());
+		assertThat(errandCaptor.getValue().getTitle()).isEqualTo("Ansökan om egensotning");
+
+		final var stakeholderCaptor = ArgumentCaptor.forClass(Stakeholder.class);
+		verify(stakeholderServiceMock).create(eq(MUNICIPALITY_ID), eq(NAMESPACE), eq(ERRAND_ID), stakeholderCaptor.capture());
+		assertThat(stakeholderCaptor.getValue().getContactChannels()).isNull();
+	}
+
+	@Test
+	void submitWithExplicitTitleKeepsIt() {
+		final var application = sampleApplication();
+		application.setTitle("Egen rubrik");
+		when(errandServiceMock.createErrand(any(), any(), any())).thenReturn(ERRAND_ID);
+
+		service.submit(MUNICIPALITY_ID, NAMESPACE, application, protokoll(), intyg());
+
+		final var errandCaptor = ArgumentCaptor.forClass(Errand.class);
+		verify(errandServiceMock).createErrand(eq(MUNICIPALITY_ID), eq(NAMESPACE), errandCaptor.capture());
+		assertThat(errandCaptor.getValue().getTitle()).isEqualTo("Egen rubrik");
+	}
+
+	@Test
+	void submitForPropertyOutsideAreaIsRejectedBeforeAnythingIsCreated() {
+		doThrow(Problem.valueOf(BAD_REQUEST, "Fastigheten ligger i fel område")).when(propertyValidatorMock).assertValid(any());
+
+		assertThatThrownBy(() -> service.submit(MUNICIPALITY_ID, NAMESPACE, sampleApplication(), protokoll(), intyg()))
+			.isInstanceOf(ThrowableProblem.class)
+			.hasFieldOrPropertyWithValue("status", BAD_REQUEST);
+
+		verifyNoInteractions(errandServiceMock, detailsServiceMock, sotningsobjektServiceMock, stakeholderServiceMock, attachmentServiceMock);
 	}
 }

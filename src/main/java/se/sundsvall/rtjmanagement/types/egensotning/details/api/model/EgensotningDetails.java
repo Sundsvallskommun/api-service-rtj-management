@@ -5,6 +5,7 @@ import jakarta.validation.constraints.Null;
 import jakarta.validation.constraints.Size;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
+import java.util.List;
 import java.util.Objects;
 import se.sundsvall.dept44.common.validators.annotation.ValidPersonalNumber;
 import se.sundsvall.rtjmanagement.core.api.validation.groups.OnCreate;
@@ -27,6 +28,20 @@ public class EgensotningDetails {
 	@Size(max = 255)
 	private String propertyAddress;
 
+	@Schema(description = "Om sökanden äger fastigheten ansökan gäller. Underlag för manuell granskning när sökanden inte är folkbokförd på fastigheten.", examples = "true")
+	private Boolean ownsProperty;
+
+	@Schema(description = "Motivering när sökanden inte äger fastigheten (t.ex. nyttjanderätt till annans fastighet)", examples = "Arrenderar fastigheten av ägaren sedan 2019.")
+	@Size(max = 2048)
+	private String ownershipMotivation;
+
+	@Schema(description = "Om ansökan gäller en annan fastighet än sökandens folkbokföringsadress (t.ex. sommarstuga)", examples = "false")
+	private Boolean appliesForOtherProperty;
+
+	@Schema(description = "Beslutsmotivering. Kan redigeras av handläggaren vid manuell granskning; lämnas den tom används den förifyllda standardtexten.", examples = "Sökanden bedöms ha tillräcklig kunskap om anläggningen.")
+	@Size(max = 4096)
+	private String motivering;
+
 	@Schema(description = "Om en bilaga finns på ärendet (beräknad av verifieringssteget)", accessMode = READ_ONLY)
 	@Null(groups = OnCreate.class)
 	private Boolean bilagaPresent;
@@ -47,9 +62,31 @@ public class EgensotningDetails {
 	@Null(groups = OnCreate.class)
 	private String manualReviewReason;
 
+	@Schema(description = "Vad som återstår att komplettera, beräknat vid läsning från bilagor + sotningsobjekt. Tom lista när ansökan är komplett — frontend kan visa en exakt checklista utan att korsreferera flera endpoints.",
+		accessMode = READ_ONLY,
+		allowableValues = {
+			"MISSING_BRANDSKYDDSKONTROLL", "MISSING_UTBILDNINGSINTYG", "MISSING_SOTNINGSOBJEKT"
+		})
+	@Null(groups = OnCreate.class)
+	private List<String> supplementNeeds;
+
 	@Schema(description = "När verifieringen senast kördes", accessMode = READ_ONLY)
 	@Null(groups = OnCreate.class)
 	private OffsetDateTime lastVerifiedAt;
+
+	@Schema(
+		description = "Om de bifogade dokumenten godkändes av Eneo (LLM) — rätt typ, giltiga och matchar sökanden. Null tills dokumentvalideringen körts. Ett icke-giltigt resultat (eller Eneo-avbrott) styr ärendet till manuell granskning; LLM:en avslår aldrig automatiskt.",
+		accessMode = READ_ONLY)
+	@Null(groups = OnCreate.class)
+	private Boolean documentsValid;
+
+	@Schema(description = "Eneos (LLM) motivering till dokumentvalideringen, på svenska — redovisas för handläggaren vid manuell granskning.", accessMode = READ_ONLY)
+	@Null(groups = OnCreate.class)
+	private String documentValidationDetail;
+
+	@Schema(description = "När dokumentvalideringen (Eneo) senast kördes", accessMode = READ_ONLY)
+	@Null(groups = OnCreate.class)
+	private OffsetDateTime documentValidatedAt;
 
 	@Schema(description = "Beslutets giltighet börjar (sätts vid godkännande)", accessMode = READ_ONLY)
 	@Null(groups = OnCreate.class)
@@ -62,6 +99,14 @@ public class EgensotningDetails {
 	@Schema(description = "När påminnelse om utgång senast skickades (null tills den gått ut)", accessMode = READ_ONLY)
 	@Null(groups = OnCreate.class)
 	private OffsetDateTime reminderSentAt;
+
+	@Schema(description = "När beslutet återkallades (null om gällande)", accessMode = READ_ONLY)
+	@Null(groups = OnCreate.class)
+	private OffsetDateTime revokedAt;
+
+	@Schema(description = "Anledning till återkallelse, t.ex. ADDRESS_CHANGED eller BSK_FAILED", accessMode = READ_ONLY)
+	@Null(groups = OnCreate.class)
+	private String revocationReason;
 
 	@Schema(description = "Created timestamp", accessMode = READ_ONLY)
 	@Null(groups = OnCreate.class)
@@ -79,12 +124,12 @@ public class EgensotningDetails {
 		return personnummer;
 	}
 
-	public void setPersonnummer(final String v) {
-		this.personnummer = v;
+	public void setPersonnummer(final String personnummer) {
+		this.personnummer = personnummer;
 	}
 
-	public EgensotningDetails withPersonnummer(final String v) {
-		this.personnummer = v;
+	public EgensotningDetails withPersonnummer(final String personnummer) {
+		this.personnummer = personnummer;
 		return this;
 	}
 
@@ -92,12 +137,12 @@ public class EgensotningDetails {
 		return fastighetsbeteckning;
 	}
 
-	public void setFastighetsbeteckning(final String v) {
-		this.fastighetsbeteckning = v;
+	public void setFastighetsbeteckning(final String fastighetsbeteckning) {
+		this.fastighetsbeteckning = fastighetsbeteckning;
 	}
 
-	public EgensotningDetails withFastighetsbeteckning(final String v) {
-		this.fastighetsbeteckning = v;
+	public EgensotningDetails withFastighetsbeteckning(final String fastighetsbeteckning) {
+		this.fastighetsbeteckning = fastighetsbeteckning;
 		return this;
 	}
 
@@ -105,12 +150,64 @@ public class EgensotningDetails {
 		return propertyAddress;
 	}
 
-	public void setPropertyAddress(final String v) {
-		this.propertyAddress = v;
+	public void setPropertyAddress(final String propertyAddress) {
+		this.propertyAddress = propertyAddress;
 	}
 
-	public EgensotningDetails withPropertyAddress(final String v) {
-		this.propertyAddress = v;
+	public EgensotningDetails withPropertyAddress(final String propertyAddress) {
+		this.propertyAddress = propertyAddress;
+		return this;
+	}
+
+	public Boolean getOwnsProperty() {
+		return ownsProperty;
+	}
+
+	public void setOwnsProperty(final Boolean ownsProperty) {
+		this.ownsProperty = ownsProperty;
+	}
+
+	public EgensotningDetails withOwnsProperty(final Boolean ownsProperty) {
+		this.ownsProperty = ownsProperty;
+		return this;
+	}
+
+	public String getOwnershipMotivation() {
+		return ownershipMotivation;
+	}
+
+	public void setOwnershipMotivation(final String ownershipMotivation) {
+		this.ownershipMotivation = ownershipMotivation;
+	}
+
+	public EgensotningDetails withOwnershipMotivation(final String ownershipMotivation) {
+		this.ownershipMotivation = ownershipMotivation;
+		return this;
+	}
+
+	public Boolean getAppliesForOtherProperty() {
+		return appliesForOtherProperty;
+	}
+
+	public void setAppliesForOtherProperty(final Boolean appliesForOtherProperty) {
+		this.appliesForOtherProperty = appliesForOtherProperty;
+	}
+
+	public EgensotningDetails withAppliesForOtherProperty(final Boolean appliesForOtherProperty) {
+		this.appliesForOtherProperty = appliesForOtherProperty;
+		return this;
+	}
+
+	public String getMotivering() {
+		return motivering;
+	}
+
+	public void setMotivering(final String motivering) {
+		this.motivering = motivering;
+	}
+
+	public EgensotningDetails withMotivering(final String motivering) {
+		this.motivering = motivering;
 		return this;
 	}
 
@@ -118,12 +215,12 @@ public class EgensotningDetails {
 		return bilagaPresent;
 	}
 
-	public void setBilagaPresent(final Boolean v) {
-		this.bilagaPresent = v;
+	public void setBilagaPresent(final Boolean bilagaPresent) {
+		this.bilagaPresent = bilagaPresent;
 	}
 
-	public EgensotningDetails withBilagaPresent(final Boolean v) {
-		this.bilagaPresent = v;
+	public EgensotningDetails withBilagaPresent(final Boolean bilagaPresent) {
+		this.bilagaPresent = bilagaPresent;
 		return this;
 	}
 
@@ -131,12 +228,12 @@ public class EgensotningDetails {
 		return registeredAtProperty;
 	}
 
-	public void setRegisteredAtProperty(final Boolean v) {
-		this.registeredAtProperty = v;
+	public void setRegisteredAtProperty(final Boolean registeredAtProperty) {
+		this.registeredAtProperty = registeredAtProperty;
 	}
 
-	public EgensotningDetails withRegisteredAtProperty(final Boolean v) {
-		this.registeredAtProperty = v;
+	public EgensotningDetails withRegisteredAtProperty(final Boolean registeredAtProperty) {
+		this.registeredAtProperty = registeredAtProperty;
 		return this;
 	}
 
@@ -144,12 +241,12 @@ public class EgensotningDetails {
 		return reapplicationOk;
 	}
 
-	public void setReapplicationOk(final Boolean v) {
-		this.reapplicationOk = v;
+	public void setReapplicationOk(final Boolean reapplicationOk) {
+		this.reapplicationOk = reapplicationOk;
 	}
 
-	public EgensotningDetails withReapplicationOk(final Boolean v) {
-		this.reapplicationOk = v;
+	public EgensotningDetails withReapplicationOk(final Boolean reapplicationOk) {
+		this.reapplicationOk = reapplicationOk;
 		return this;
 	}
 
@@ -157,12 +254,12 @@ public class EgensotningDetails {
 		return lastOutcome;
 	}
 
-	public void setLastOutcome(final String v) {
-		this.lastOutcome = v;
+	public void setLastOutcome(final String lastOutcome) {
+		this.lastOutcome = lastOutcome;
 	}
 
-	public EgensotningDetails withLastOutcome(final String v) {
-		this.lastOutcome = v;
+	public EgensotningDetails withLastOutcome(final String lastOutcome) {
+		this.lastOutcome = lastOutcome;
 		return this;
 	}
 
@@ -170,12 +267,25 @@ public class EgensotningDetails {
 		return manualReviewReason;
 	}
 
-	public void setManualReviewReason(final String v) {
-		this.manualReviewReason = v;
+	public void setManualReviewReason(final String manualReviewReason) {
+		this.manualReviewReason = manualReviewReason;
 	}
 
-	public EgensotningDetails withManualReviewReason(final String v) {
-		this.manualReviewReason = v;
+	public EgensotningDetails withManualReviewReason(final String manualReviewReason) {
+		this.manualReviewReason = manualReviewReason;
+		return this;
+	}
+
+	public List<String> getSupplementNeeds() {
+		return supplementNeeds;
+	}
+
+	public void setSupplementNeeds(final List<String> supplementNeeds) {
+		this.supplementNeeds = supplementNeeds;
+	}
+
+	public EgensotningDetails withSupplementNeeds(final List<String> supplementNeeds) {
+		this.supplementNeeds = supplementNeeds;
 		return this;
 	}
 
@@ -183,12 +293,51 @@ public class EgensotningDetails {
 		return lastVerifiedAt;
 	}
 
-	public void setLastVerifiedAt(final OffsetDateTime v) {
-		this.lastVerifiedAt = v;
+	public void setLastVerifiedAt(final OffsetDateTime lastVerifiedAt) {
+		this.lastVerifiedAt = lastVerifiedAt;
 	}
 
-	public EgensotningDetails withLastVerifiedAt(final OffsetDateTime v) {
-		this.lastVerifiedAt = v;
+	public EgensotningDetails withLastVerifiedAt(final OffsetDateTime lastVerifiedAt) {
+		this.lastVerifiedAt = lastVerifiedAt;
+		return this;
+	}
+
+	public Boolean getDocumentsValid() {
+		return documentsValid;
+	}
+
+	public void setDocumentsValid(final Boolean documentsValid) {
+		this.documentsValid = documentsValid;
+	}
+
+	public EgensotningDetails withDocumentsValid(final Boolean documentsValid) {
+		this.documentsValid = documentsValid;
+		return this;
+	}
+
+	public String getDocumentValidationDetail() {
+		return documentValidationDetail;
+	}
+
+	public void setDocumentValidationDetail(final String documentValidationDetail) {
+		this.documentValidationDetail = documentValidationDetail;
+	}
+
+	public EgensotningDetails withDocumentValidationDetail(final String documentValidationDetail) {
+		this.documentValidationDetail = documentValidationDetail;
+		return this;
+	}
+
+	public OffsetDateTime getDocumentValidatedAt() {
+		return documentValidatedAt;
+	}
+
+	public void setDocumentValidatedAt(final OffsetDateTime documentValidatedAt) {
+		this.documentValidatedAt = documentValidatedAt;
+	}
+
+	public EgensotningDetails withDocumentValidatedAt(final OffsetDateTime documentValidatedAt) {
+		this.documentValidatedAt = documentValidatedAt;
 		return this;
 	}
 
@@ -196,12 +345,12 @@ public class EgensotningDetails {
 		return validFrom;
 	}
 
-	public void setValidFrom(final LocalDate v) {
-		this.validFrom = v;
+	public void setValidFrom(final LocalDate validFrom) {
+		this.validFrom = validFrom;
 	}
 
-	public EgensotningDetails withValidFrom(final LocalDate v) {
-		this.validFrom = v;
+	public EgensotningDetails withValidFrom(final LocalDate validFrom) {
+		this.validFrom = validFrom;
 		return this;
 	}
 
@@ -209,12 +358,12 @@ public class EgensotningDetails {
 		return validUntil;
 	}
 
-	public void setValidUntil(final LocalDate v) {
-		this.validUntil = v;
+	public void setValidUntil(final LocalDate validUntil) {
+		this.validUntil = validUntil;
 	}
 
-	public EgensotningDetails withValidUntil(final LocalDate v) {
-		this.validUntil = v;
+	public EgensotningDetails withValidUntil(final LocalDate validUntil) {
+		this.validUntil = validUntil;
 		return this;
 	}
 
@@ -222,12 +371,38 @@ public class EgensotningDetails {
 		return reminderSentAt;
 	}
 
-	public void setReminderSentAt(final OffsetDateTime v) {
-		this.reminderSentAt = v;
+	public void setReminderSentAt(final OffsetDateTime reminderSentAt) {
+		this.reminderSentAt = reminderSentAt;
 	}
 
-	public EgensotningDetails withReminderSentAt(final OffsetDateTime v) {
-		this.reminderSentAt = v;
+	public EgensotningDetails withReminderSentAt(final OffsetDateTime reminderSentAt) {
+		this.reminderSentAt = reminderSentAt;
+		return this;
+	}
+
+	public OffsetDateTime getRevokedAt() {
+		return revokedAt;
+	}
+
+	public void setRevokedAt(final OffsetDateTime revokedAt) {
+		this.revokedAt = revokedAt;
+	}
+
+	public EgensotningDetails withRevokedAt(final OffsetDateTime revokedAt) {
+		this.revokedAt = revokedAt;
+		return this;
+	}
+
+	public String getRevocationReason() {
+		return revocationReason;
+	}
+
+	public void setRevocationReason(final String revocationReason) {
+		this.revocationReason = revocationReason;
+	}
+
+	public EgensotningDetails withRevocationReason(final String revocationReason) {
+		this.revocationReason = revocationReason;
 		return this;
 	}
 
@@ -235,12 +410,12 @@ public class EgensotningDetails {
 		return created;
 	}
 
-	public void setCreated(final OffsetDateTime v) {
-		this.created = v;
+	public void setCreated(final OffsetDateTime created) {
+		this.created = created;
 	}
 
-	public EgensotningDetails withCreated(final OffsetDateTime v) {
-		this.created = v;
+	public EgensotningDetails withCreated(final OffsetDateTime created) {
+		this.created = created;
 		return this;
 	}
 
@@ -248,12 +423,12 @@ public class EgensotningDetails {
 		return modified;
 	}
 
-	public void setModified(final OffsetDateTime v) {
-		this.modified = v;
+	public void setModified(final OffsetDateTime modified) {
+		this.modified = modified;
 	}
 
-	public EgensotningDetails withModified(final OffsetDateTime v) {
-		this.modified = v;
+	public EgensotningDetails withModified(final OffsetDateTime modified) {
+		this.modified = modified;
 		return this;
 	}
 
@@ -263,26 +438,38 @@ public class EgensotningDetails {
 			return false;
 		final EgensotningDetails that = (EgensotningDetails) o;
 		return Objects.equals(personnummer, that.personnummer) && Objects.equals(fastighetsbeteckning, that.fastighetsbeteckning)
-			&& Objects.equals(propertyAddress, that.propertyAddress) && Objects.equals(bilagaPresent, that.bilagaPresent)
+			&& Objects.equals(propertyAddress, that.propertyAddress) && Objects.equals(ownsProperty, that.ownsProperty)
+			&& Objects.equals(ownershipMotivation, that.ownershipMotivation) && Objects.equals(appliesForOtherProperty, that.appliesForOtherProperty)
+			&& Objects.equals(motivering, that.motivering) && Objects.equals(bilagaPresent, that.bilagaPresent)
 			&& Objects.equals(registeredAtProperty, that.registeredAtProperty) && Objects.equals(reapplicationOk, that.reapplicationOk)
 			&& Objects.equals(lastOutcome, that.lastOutcome) && Objects.equals(manualReviewReason, that.manualReviewReason)
-			&& Objects.equals(lastVerifiedAt, that.lastVerifiedAt) && Objects.equals(validFrom, that.validFrom)
+			&& Objects.equals(supplementNeeds, that.supplementNeeds)
+			&& Objects.equals(lastVerifiedAt, that.lastVerifiedAt)
+			&& Objects.equals(documentsValid, that.documentsValid) && Objects.equals(documentValidationDetail, that.documentValidationDetail)
+			&& Objects.equals(documentValidatedAt, that.documentValidatedAt) && Objects.equals(validFrom, that.validFrom)
 			&& Objects.equals(validUntil, that.validUntil) && Objects.equals(reminderSentAt, that.reminderSentAt)
+			&& Objects.equals(revokedAt, that.revokedAt) && Objects.equals(revocationReason, that.revocationReason)
 			&& Objects.equals(created, that.created) && Objects.equals(modified, that.modified);
 	}
 
 	@Override
 	public int hashCode() {
-		return Objects.hash(personnummer, fastighetsbeteckning, propertyAddress, bilagaPresent, registeredAtProperty,
-			reapplicationOk, lastOutcome, manualReviewReason, lastVerifiedAt, validFrom, validUntil, reminderSentAt, created, modified);
+		return Objects.hash(personnummer, fastighetsbeteckning, propertyAddress, ownsProperty, ownershipMotivation, appliesForOtherProperty,
+			motivering, bilagaPresent, registeredAtProperty, reapplicationOk, lastOutcome, manualReviewReason, supplementNeeds, lastVerifiedAt,
+			documentsValid, documentValidationDetail, documentValidatedAt, validFrom,
+			validUntil, reminderSentAt, revokedAt, revocationReason, created, modified);
 	}
 
+	// Deliberately omits personnummer and documentValidationDetail — the latter is the LLM motivation
+	// and may embed the applicant's name/personnummer, so it is kept out of logs as PII.
 	@Override
 	public String toString() {
 		return "EgensotningDetails{fastighetsbeteckning='" + fastighetsbeteckning + "', propertyAddress='" + propertyAddress
-			+ "', bilagaPresent=" + bilagaPresent + ", registeredAtProperty=" + registeredAtProperty + ", reapplicationOk=" + reapplicationOk
-			+ ", lastOutcome='" + lastOutcome + "', manualReviewReason='" + manualReviewReason + "', lastVerifiedAt=" + lastVerifiedAt
+			+ "', ownsProperty=" + ownsProperty + ", ownershipMotivation='" + ownershipMotivation + "', appliesForOtherProperty=" + appliesForOtherProperty
+			+ ", motivering='" + motivering + "', bilagaPresent=" + bilagaPresent + ", registeredAtProperty=" + registeredAtProperty + ", reapplicationOk=" + reapplicationOk
+			+ ", lastOutcome='" + lastOutcome + "', manualReviewReason='" + manualReviewReason + "', supplementNeeds=" + supplementNeeds + ", lastVerifiedAt=" + lastVerifiedAt
+			+ ", documentsValid=" + documentsValid + ", documentValidatedAt=" + documentValidatedAt
 			+ ", validFrom=" + validFrom + ", validUntil=" + validUntil + ", reminderSentAt=" + reminderSentAt
-			+ ", created=" + created + ", modified=" + modified + '}';
+			+ ", revokedAt=" + revokedAt + ", revocationReason='" + revocationReason + "', created=" + created + ", modified=" + modified + '}';
 	}
 }
