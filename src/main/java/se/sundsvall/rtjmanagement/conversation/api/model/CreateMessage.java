@@ -15,5 +15,5 @@ public record CreateMessage(
 
 	@Schema(description = "Meddelandetext", examples = "Vänligen komplettera med ett giltigt utbildningsintyg.") @NotBlank @Size(max = 8192) String body,
 
-	@Schema(description = "Avsändarens id (handläggarens användar-id eller sökandens identifierare)", examples = "bsk-anders-svensson") @Size(max = 64) String author){
+	@Schema(description = "Avsändarens id (handläggarens användar-id eller sökandens identifierare)", examples = "bsk-anders-svensson") @Size(max = 64) String author) {
 }
